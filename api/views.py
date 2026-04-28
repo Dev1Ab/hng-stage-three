@@ -1,5 +1,6 @@
 import re
-
+from .permissions import IsAdmin
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import CreateAPIView, RetrieveDestroyAPIView, ListAPIView, ListCreateAPIView, ValidationError
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -29,6 +30,11 @@ class Pagination(PageNumberPagination):
             "page": self.page.number,
             "limit": self.get_page_size(self.request),
             "total": self.page.paginator.count,
+            "total_pages": self.page.paginator.num_pages,
+            "links": {
+                "next": self.get_next_link(),
+                "previous": self.get_previous_link()
+            },
             "data": data
         })
 
@@ -36,6 +42,11 @@ class PersonPredictionView(ListCreateAPIView):
     serializer_class = PersonSerializer
     queryset = Person.objects.all()
     pagination_class = Pagination
+
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [IsAdmin(), IsAuthenticated()]
+        return [IsAuthenticated()]
 
     def create(self, request, *args, **kwargs):
         name = request.data.get("name")
