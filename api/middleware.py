@@ -6,7 +6,7 @@ class APIVersionMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if request.path.startswith('/api/profile/'):
+        if request.path.startswith('/api'):
             version = request.headers.get('X-API-Version')
 
             if version != '1':
