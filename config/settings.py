@@ -18,6 +18,15 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ],
     'EXCEPTION_HANDLER': 'api.exceptions.custom_exception_handler',
+    
+    'DEFAULT_THROTTLE_CLASSES': [
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.AnonRateThrottle",
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        "auth": "10/minute",
+        "user": "60/minute",
+    },
 }
 
 SIMPLE_JWT = {
@@ -63,6 +72,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'api.middleware.APIVersionMiddleware',
+    'config.middleware.RequestLoggingMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
