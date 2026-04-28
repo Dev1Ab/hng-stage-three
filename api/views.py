@@ -1,18 +1,21 @@
 import re
-from .permissions import IsAdmin
+import requests
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import CreateAPIView, RetrieveDestroyAPIView, ListAPIView, ListCreateAPIView, ValidationError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-import requests
 from datetime import datetime, timezone
 from uuid6 import uuid7
 from decouple import config
 from rest_framework.pagination import PageNumberPagination
 
+from config.utils import UserRateThrottle
+
 from .serializers import PersonSerializer
 from .models import Person
+from .permissions import IsAdmin
+from .utils import ProfileCSVRenderer
 
 
 GENDERIZE_API_URL = config("GENDERIZE_API_URL")
@@ -42,6 +45,7 @@ class PersonPredictionView(ListCreateAPIView):
     serializer_class = PersonSerializer
     queryset = Person.objects.all()
     pagination_class = Pagination
+    throttle_classes = [UserRateThrottle]
 
     def get_permissions(self):
         if self.request.method == 'POST':
@@ -223,6 +227,8 @@ class PersonPredictionDetailView(RetrieveDestroyAPIView):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     lookup_field = "id"
+    permission_classes = [IsAuthenticated, IsAdmin()]
+    throttle_classes = [UserRateThrottle]
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -241,6 +247,8 @@ class PersonPredictionDetailView(RetrieveDestroyAPIView):
 class ProfileSearchView(ListAPIView):
     serializer_class = PersonSerializer
     pagination_class = Pagination
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [UserRateThrottle]
 
     def get_queryset(self):
         q = self.request.query_params.get("q", "").lower()
@@ -309,3 +317,43 @@ class ProfileSearchView(ListAPIView):
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+    
+
+class ExportProfilesView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [UserRateThrottle]
+
+    def get(self, request):
+        format = request.query_params.get("format", "csv").lower()
+
+        if format != "csv":
+            return Response({
+                "status": "error",
+                "message": "Unsupported format"
+            }, status=400)
+
+        view = PersonPredictionView()
+        view.request = request
+
+        queryset = view.filter_queryset(view.get_queryset())
+        serializer = PersonSerializer(queryset, many=True)
+
+        data = []
+        for item in serializer.data:
+            data.append({
+                "id": item["id"],
+                "name": item["name"],
+                "gender": item["gender"],
+                "gender_probability": item["gender_probability"],
+                "age": item["age"],
+                "age_group": item["age_group"],
+                "country_id": item["country"]["id"] if item.get("country") else None,
+                "country_name": item["country"]["name"] if item.get("country") else None,
+                "country_probability": item["country_probability"],
+                "created_at": item["created_at"],
+            })
+
+        response = Response(data, content_type="text/csv", status=status.HTTP_200_OK)
+        response["Content-Disposition"] = 'attachment; filename="profiles.csv"'
+
+        return response
