@@ -1,3 +1,5 @@
+from config.utils import AuthRateThrottle
+
 from .models import User
 from rest_framework import generics, viewsets
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAuthenticatedOrReadOnly
@@ -7,18 +9,18 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework import status
-import hashlib
-import base64
-import secrets
-import requests
+import hashlib, base64, secrets, requests
 from django.conf import settings
-from django.shortcuts import redirect
+from django.shortcuts import get_object_or_404, redirect
 from decouple import config
+from rest_framework.permissions import IsAdminUser
 
 # Create your views here.
 
 class GitHubLoginView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
+
     def get(self, request):
         code_verifier = secrets.token_urlsafe(64)
         request.session['code_verifier'] = code_verifier
@@ -40,6 +42,8 @@ class GitHubLoginView(APIView):
 
 class GitHubCallbackView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
+
     def get(self, request):
         code = request.GET.get('code')
         code_verifier = request.session.get('code_verifier')
@@ -90,13 +94,14 @@ class GitHubCallbackView(APIView):
         refresh = RefreshToken.for_user(user)
         return Response({
             'status': 'success',
-            'refresh_token': str(refresh),
             'access_token': str(refresh.access_token),
+            'refresh_token': str(refresh),
             'user': user_res['login']
         })
 
 class TokenRefreshView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         refresh_token = request.data.get("refresh_token")
@@ -149,6 +154,7 @@ class TokenRefreshView(APIView):
 
 class LogoutView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         refresh_token = request.data.get("refresh_token")
@@ -177,3 +183,19 @@ class LogoutView(APIView):
                 {"status": "error", "message": "Invalid or expired token"},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+class CreateAdminView(APIView):
+    # permission_classes = [IsAdminUser]
+    throttle_classes = [AuthRateThrottle]
+
+    def post(self, request, user_id):
+        user = get_object_or_404(User, id=user_id)
+
+        user.is_staff = True
+        user.role = 'admin'
+        user.save()
+
+        return Response({
+            "status": "success",
+            "message": "User promoted to admin"
+        }, status=status.HTTP_200_OK)
