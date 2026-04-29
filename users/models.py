@@ -10,7 +10,7 @@ ROLE_CHOICES = [
 
 class User(AbstractUser):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    github_id = models.CharField(max_length=100, unique=True)
+    github_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
 
     role = models.CharField(choices=ROLE_CHOICES, default="analyst")
 
