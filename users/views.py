@@ -27,6 +27,14 @@ class GitHubLoginView(APIView):
         code_challenge = request.GET.get("code_challenge")
         state = request.GET.get("state")
 
+        code_verifier = request.GET.get("code_verifier")
+
+        if state.startswith("web:") and not code_verifier:
+            return Response({
+                "status": "error",
+                "message": "Missing code_verifier"
+            }, status=400)
+
         if not code_challenge:
             return Response({
                 "status":"error",
@@ -47,7 +55,19 @@ class GitHubLoginView(APIView):
             f"&code_challenge={code_challenge}"
             f"&code_challenge_method=S256"
         )
-        return redirect(github_url)
+        response = redirect(github_url)
+
+        if state.startswith("web:"):
+            response.set_cookie(
+                key="web_code_verifier",
+                value=code_verifier,
+                max_age=300,
+                httponly=True,
+                secure=False,
+                samesite="Lax"
+            )
+
+        return response
 
 class GitHubCallbackView(APIView):
     permission_classes = [AllowAny]
@@ -79,20 +99,29 @@ class GitHubCallbackView(APIView):
 
         # Web
         elif client_type == "web":
-            return self.handle_web_login(request, code)
+            code_verifier = request.COOKIES.get("web_code_verifier")
+
+            if not code_verifier:
+                return Response({
+                    "status": "error",
+                    "message": "Missing PKCE verifier"
+                }, status=400)
+
+            return self.handle_web_login(request, code, code_verifier)
 
         return Response({
             "status": "error",
             "message": "Unknown client"
         }, status=400)
 
-    def handle_web_login(self, request, code):
+    def handle_web_login(self, request, code, code_verifier):
         token_res = requests.post(
             f"{config('GITHUB_OAUTH_URL')}/access_token",
             data={
                 "client_id": config('GITHUB_CLIENT_ID'),
                 "client_secret": config('GITHUB_CLIENT_SECRET'),
                 "code": code,
+                "code_verifier": code_verifier,
                 "redirect_uri": config('GITHUB_REDIRECT_URI'),
             },
             headers={"Accept": "application/json"}
@@ -103,7 +132,8 @@ class GitHubCallbackView(APIView):
         if not access_token:
             return Response({
                 "status": "error",
-                "message": "GitHub auth failed"
+                "message": "GitHub auth failed",
+                "github_response": token_res
             }, status=400)
 
         # Get User Info from GitHub
@@ -175,6 +205,8 @@ class GitHubCallbackView(APIView):
             secure=False,
             samesite="Lax"
         )
+
+        response.delete_cookie("web_code_verifier")
 
         return response
 
@@ -378,5 +410,8 @@ class MeView(APIView):
 
     def get(self, request):
         return Response({
-            "username": request.user.username
+            "username": request.user.username,
+            "email": request.user.email,
+            "role": request.user.role,
+            "is_active": request.user.is_active,
         })
