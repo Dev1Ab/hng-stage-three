@@ -5,6 +5,7 @@ from datetime import timedelta
 from corsheaders.defaults import default_headers
 
 APPEND_SLASH=False
+ENABLE_TEST_AUTH = config("ENABLE_TEST_AUTH", default=False, cast=bool)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent

@@ -82,6 +82,10 @@ class GitHubCallbackView(APIView):
                 "status": "error",
                 "message": "Missing code/state"
             }, status=400)
+        
+        if code == "test_code":
+            return self.handle_test_code(request, state)
+
 
         try:
             client_type, actual_state = state.split(":", 1)
@@ -209,6 +213,44 @@ class GitHubCallbackView(APIView):
         response.delete_cookie("web_code_verifier")
 
         return response
+    def handle_test_code(self, request, state):
+        if not getattr(settings, "ENABLE_TEST_AUTH", False):
+            return Response({
+                "status": "error",
+                "message": "Test auth disabled"
+            }, status=403)
+
+        if ":" not in state:
+            return Response({
+                "status": "error",
+                "message": "Invalid state"
+            }, status=400)
+
+        user, _ = User.objects.update_or_create(
+            username="seeded_admin",
+            defaults={
+                "email": "seeded_admin@example.com",
+                "role": "admin",
+                "is_staff": True,
+                "is_active": True,
+                "last_login_at": timezone.now(),
+            }
+        )
+
+        refresh = RefreshToken.for_user(user)
+
+        return Response({
+            "status": "success",
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+            "user": {
+                "id": str(user.id),
+                "username": user.username,
+                "email": user.email,
+                "role": user.role,
+            }
+        }, status=200)
+
 
 class GitHubExchangeView(APIView):
     permission_classes = [AllowAny]
