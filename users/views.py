@@ -39,7 +39,7 @@ class GitHubLoginView(APIView):
                 "message": "Missing state"}, status=400)
 
         github_url = (
-            f"https://github.com/login/oauth/authorize"
+            f"{config('GITHUB_OAUTH_URL')}/authorize"
             f"?client_id={config('GITHUB_CLIENT_ID')}"
             f"&redirect_uri={config('GITHUB_REDIRECT_URI')}"
             f"&scope=read:user user:email"
@@ -74,7 +74,7 @@ class GitHubCallbackView(APIView):
         # CLI
         if client_type == "cli":
             return redirect(
-                f"http://localhost:8765/callback?code={code}&state={state}"
+                f"{config('CLI_APP_URL')}/callback?code={code}&state={state}"
             )
 
         # Web
@@ -88,7 +88,7 @@ class GitHubCallbackView(APIView):
 
     def handle_web_login(self, request, code):
         token_res = requests.post(
-            "https://github.com/login/oauth/access_token",
+            f"{config('GITHUB_OAUTH_URL')}/access_token",
             data={
                 "client_id": config('GITHUB_CLIENT_ID'),
                 "client_secret": config('GITHUB_CLIENT_SECRET'),
@@ -108,14 +108,14 @@ class GitHubCallbackView(APIView):
 
         # Get User Info from GitHub
         user_res = requests.get(
-            "https://api.github.com/user",
+            f"{config('GITHUB_API_URL')}",
             headers={"Authorization": f"token {access_token}"}
         ).json()
 
         email = user_res.get("email")
         if not email:
             emails_res = requests.get(
-                "https://api.github.com/user/emails",
+                f"{config('GITHUB_API_URL')}/emails",
                 headers={"Authorization": f"token {access_token}"}
             ).json()
 
@@ -193,7 +193,7 @@ class GitHubExchangeView(APIView):
             }, status=400)
 
         token_res = requests.post(
-            "https://github.com/login/oauth/access_token",
+            f"{config('GITHUB_OAUTH_URL')}/access_token",
             data={
                 "client_id": config('GITHUB_CLIENT_ID'),
                 "client_secret": config('GITHUB_CLIENT_SECRET'),
@@ -215,14 +215,14 @@ class GitHubExchangeView(APIView):
         
         # Get User Info from GitHub
         user_res = requests.get(
-            "https://api.github.com/user",
+            f"{config('GITHUB_API_URL')}",
             headers={"Authorization": f"token {access_token}"}
         ).json()
 
         email = user_res.get("email")
         if not email:
             emails_res = requests.get(
-                "https://api.github.com/user/emails",
+                f"{config('GITHUB_API_URL')}/emails",
                 headers={"Authorization": f"token {access_token}"}
             ).json()
 
