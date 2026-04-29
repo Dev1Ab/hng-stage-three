@@ -63,8 +63,8 @@ class GitHubLoginView(APIView):
                 value=code_verifier,
                 max_age=300,
                 httponly=True,
-                secure=False,
-                samesite="Lax"
+                secure=True,
+                samesite="None"
             )
 
         return response
@@ -194,16 +194,16 @@ class GitHubCallbackView(APIView):
             key="access_token",
             value=str(refresh.access_token),
             httponly=True,
-            secure=False,
-            samesite="Lax"
+            secure=True,
+            samesite="None"
         )
 
         response.set_cookie(
             key="refresh_token",
             value=str(refresh),
             httponly=True,
-            secure=False,
-            samesite="Lax"
+            secure=True,
+            samesite="None"
         )
 
         response.delete_cookie("web_code_verifier")
