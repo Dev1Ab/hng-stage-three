@@ -1,21 +1,22 @@
 import re
 import requests
+import csv
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import CreateAPIView, RetrieveDestroyAPIView, ListAPIView, ListCreateAPIView, ValidationError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.pagination import PageNumberPagination
 from datetime import datetime, timezone
 from uuid6 import uuid7
 from decouple import config
-from rest_framework.pagination import PageNumberPagination
+from django.http import HttpResponse
 
 from config.utils import UserRateThrottle
 
 from .serializers import PersonSerializer
 from .models import Person
-from .permissions import IsAdmin
-from .utils import ProfileCSVRenderer
+from .permissions import IsAdmin, IsActiveUser
 
 
 GENDERIZE_API_URL = config("GENDERIZE_API_URL")
@@ -36,7 +37,7 @@ class Pagination(PageNumberPagination):
             "total_pages": self.page.paginator.num_pages,
             "links": {
                 "next": self.get_next_link(),
-                "previous": self.get_previous_link()
+                "prev": self.get_previous_link()
             },
             "data": data
         })
@@ -49,8 +50,8 @@ class PersonPredictionView(ListCreateAPIView):
 
     def get_permissions(self):
         if self.request.method == 'POST':
-            return [IsAdmin(), IsAuthenticated()]
-        return [IsAuthenticated()]
+            return [IsAdmin(), IsAuthenticated(), IsActiveUser()]
+        return [IsAuthenticated(), IsActiveUser()]
 
     def create(self, request, *args, **kwargs):
         name = request.data.get("name")
@@ -227,7 +228,7 @@ class PersonPredictionDetailView(RetrieveDestroyAPIView):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     lookup_field = "id"
-    permission_classes = [IsAuthenticated, IsAdmin()]
+    permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
     throttle_classes = [UserRateThrottle]
 
     def retrieve(self, request, *args, **kwargs):
@@ -247,7 +248,7 @@ class PersonPredictionDetailView(RetrieveDestroyAPIView):
 class ProfileSearchView(ListAPIView):
     serializer_class = PersonSerializer
     pagination_class = Pagination
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsActiveUser]
     throttle_classes = [UserRateThrottle]
 
     def get_queryset(self):
@@ -320,7 +321,7 @@ class ProfileSearchView(ListAPIView):
     
 
 class ExportProfilesView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsActiveUser]
     throttle_classes = [UserRateThrottle]
 
     def get(self, request):
@@ -334,26 +335,41 @@ class ExportProfilesView(APIView):
 
         view = PersonPredictionView()
         view.request = request
-
         queryset = view.filter_queryset(view.get_queryset())
-        serializer = PersonSerializer(queryset, many=True)
 
-        data = []
-        for item in serializer.data:
-            data.append({
-                "id": item["id"],
-                "name": item["name"],
-                "gender": item["gender"],
-                "gender_probability": item["gender_probability"],
-                "age": item["age"],
-                "age_group": item["age_group"],
-                "country_id": item["country"]["id"] if item.get("country") else None,
-                "country_name": item["country"]["name"] if item.get("country") else None,
-                "country_probability": item["country_probability"],
-                "created_at": item["created_at"],
-            })
+        # Create CSV response
+        response = HttpResponse(content_type="text/csv")
+        filename = f"profiles_{datetime.now().strftime('%Y%m%d%H%M%S')}.csv"
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
 
-        response = Response(data, content_type="text/csv", status=status.HTTP_200_OK)
-        response["Content-Disposition"] = 'attachment; filename="profiles.csv"'
+        writer = csv.writer(response)
+
+        writer.writerow([
+            "id",
+            "name",
+            "gender",
+            "gender_probability",
+            "age",
+            "age_group",
+            "country_id",
+            "country_name",
+            "country_probability",
+            "created_at",
+        ])
+
+        # Rows
+        for p in queryset:
+            writer.writerow([
+                p.id,
+                p.name,
+                p.gender,
+                p.gender_probability,
+                p.age,
+                p.age_group,
+                p.country_id,
+                p.country_name,
+                p.country_probability,
+                p.created_at,
+            ])
 
         return response
