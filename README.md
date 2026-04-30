@@ -1,103 +1,263 @@
-# HNG-Internship Stage 2
-# Intelligence Query Engine API
+# Insighta Labs+ Backend
 
-A backend system built for **Insighta Labs** that provides advanced filtering, sorting, pagination, and natural language querying over demographic profile data.
+A secure backend system for **Insighta Labs+**, supporting:
 
----
-
-# Features
-
-- Advanced filtering (gender, age, country, probability ranges)
-- Sorting (age, created_at, gender_probability)
-- Pagination (page & limit support, max 50)
-- Natural language query parsing (rule-based, no AI/LLMs)
-- External API-based profile generation (Genderize, Agify, Nationalize)
-- Standardized API response format
+* GitHub OAuth (PKCE)
+* JWT authentication (access + refresh tokens)
+* Role-based access control (Admin / Analyst)
+* Multi-interface access (CLI + Web)
+* Profile intelligence APIs
+* CSV export
+* Rate limiting and request protection
 
 ---
 
-## Natural Language Search
+## Tech Stack
 
-`GET /api/profiles/search?q=`
-
-Converts plain English into structured filters using a rule-based parsing system (**NO AI / LLM used**).
-
----
-
-## Example Requests
-
-**Young males from Nigeria**  
-`/api/profiles/search?q=young males from nigeria`
-
-**Females above 30**  
-`/api/profiles/search?q=females above 30`
-
-**Adult males from Kenya**  
-`/api/profiles/search?q=adult males from kenya`
+* Django + Django REST Framework
+* SimpleJWT (JWT auth)
+* PostgreSQL
+* GitHub OAuth (PKCE)
+* CORS + Cookie-based auth
 
 ---
 
-## Parsing Rules
+## Authentication System
 
-| Phrase        | Mapping              |
-|--------------|----------------------|
-| young        | age 16–24           |
-| above X      | age >= X            |
-| below X      | age <= X            |
-| male         | gender = male       |
-| female       | gender = female     |
-| teenager     | age_group = teenager |
-| adult        | age_group = adult   |
-| child        | age_group = child   |
-| senior       | age_group = senior  |
-| country name | mapped to ISO code  |
+### Overview
+
+This system supports **two authentication flows**:
+
+| Interface | Auth Method                      |
+| --------- | -------------------------------- |
+| CLI       | OAuth + PKCE + Bearer tokens     |
+| Web       | OAuth + PKCE + HTTP-only cookies |
 
 ---
 
-## Response Format
+### OAuth Flow (GitHub + PKCE)
+
+#### Step 1 — Initiate Login
+
+```http
+GET /auth/github
+```
+
+* Redirects user to GitHub OAuth
+* Supports PKCE (`code_challenge`)
+* Automatically generates PKCE if not provided
+
+---
+
+#### Callback
+
+```http
+GET /auth/github/callback
+```
+
+Handles:
+
+* CLI flow → redirects to CLI callback
+* Web flow → exchanges code + sets cookies
+
+---
+
+## Token System
+
+### Access Token
+
+* Short-lived
+* Used for API authentication
+
+### Refresh Token
+
+* Long-lived
+* Used to generate new access tokens
+
+---
+
+### Refresh Endpoint
+
+```http
+POST /auth/refresh
+```
+
+Request:
+
+```json
+{
+  "refresh_token": "..."
+}
+```
+
+Response:
 
 ```json
 {
   "status": "success",
-  "page": 1,
-  "limit": 10,
-  "total": 120,
-  "data": []
-}
-```
-
-Error Response
-```json
-{
-  "status": "error",
-  "message": "Unable to interpret query"
+  "access_token": "...",
+  "refresh_token": "..."
 }
 ```
 
 ---
-## Natural Language Parsing Limitations
 
-The parser is rule-based and has the following limitations:
+## Web Authentication (Cookies)
 
-### 1. Multi-intent queries
-Queries like "male and female teenagers above 17" require combining multiple filters. The system handles gender conflicts by not applying gender filters when both are present.
+* Tokens stored in **HTTP-only cookies**
+* Not accessible via JavaScript
+* Secure production settings:
 
-### 2. Ambiguity in wording
-Words like "young" are strictly mapped to 16–24 age range and do not adapt based on context.
-
-### 3. Sequential parsing limitation
-Filters are applied independently and then combined, meaning complex sentence structures are not deeply parsed.
-
-### 4. Country mapping limitation
-Only predefined countries are supported via a static dictionary.
-
-```json
-COUNTRY_MAP = {
-    "nigeria": "NG",
-    "kenya": "KE",
-    "angola": "AO",
-}
+```python
+httponly=True
+secure=True
+samesite="None"
 ```
-      
-- Only countries included in the `COUNTRY_MAP` are supported
-- Queries outside this list cannot be interpreted
+
+---
+
+## CLI Authentication
+
+* Stores credentials at:
+
+```bash
+~/.insighta/credentials.json
+```
+
+* Uses:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+* Auto-refreshes tokens when expired
+
+---
+
+## Role-Based Access Control
+
+### Roles
+
+| Role    | Permissions                          |
+| ------- | ------------------------------------ |
+| Admin   | Full access (create, delete, export) |
+| Analyst | Read-only access                     |
+
+---
+
+### Enforcement
+
+* Applied at view level:
+
+```python
+IsAuthenticated + IsAdmin
+```
+
+---
+
+## API Endpoints
+
+### Auth
+
+| Endpoint                | Method | Description        |
+| ----------------------- | ------ | ------------------ |
+| `/auth/github`          | GET    | Start OAuth        |
+| `/auth/github/callback` | GET    | Handle callback    |
+| `/auth/exchange`        | POST   | CLI token exchange |
+| `/auth/refresh`         | POST   | Refresh tokens     |
+| `/auth/logout`          | POST   | Logout             |
+| `/auth/me`              | GET    | Current user       |
+
+---
+
+### Profiles
+
+| Endpoint               | Method | Description                 |
+| ---------------------- | ------ | --------------------------- |
+| `/api/profiles`        | GET    | List profiles               |
+| `/api/profiles`        | POST   | Create profile (Admin only) |
+| `/api/profiles/<id>`   | GET    | Retrieve profile            |
+| `/api/profiles/<id>`   | DELETE | Delete (Admin only)         |
+| `/api/profiles/search` | GET    | Natural search              |
+| `/api/profiles/export` | GET    | Export CSV                  |
+
+---
+
+## Features
+
+### Filtering & Sorting
+
+Supports:
+
+* gender
+* age range
+* country
+* probability thresholds
+* sorting (age, created_at, etc.)
+
+---
+
+### Natural Language Search
+
+```http
+GET /api/profiles/search?q=female adults in nigeria above 30
+```
+
+---
+
+### CSV Export
+
+```http
+GET /api/profiles/export?format=csv
+```
+
+* Downloads CSV file
+* Saves data for CLI and browser
+
+---
+
+## Rate Limiting
+
+* Custom throttle classes:
+
+  * `AuthRateThrottle`
+  * `UserRateThrottle`
+
+Protects:
+
+* Auth endpoints
+* Profile endpoints
+
+---
+
+## Security
+
+* PKCE enforced for OAuth
+* HTTP-only cookies for web
+* Token blacklisting (logout)
+* Role-based access
+* Input validation on queries
+
+---
+
+## API Versioning
+
+Headers:
+
+```http
+X-API-Version: 1
+```
+
+---
+
+## Running Locally
+
+```bash
+git clone https://github.com/Dev1Ab/hng-stage-three.git
+cd backend
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py runserver
+```
+
+---
