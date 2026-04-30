@@ -50,7 +50,7 @@ class PersonPredictionView(ListCreateAPIView):
 
     def get_permissions(self):
         if self.request.method == 'POST':
-            return [IsAdmin(), IsAuthenticated(), IsActiveUser()]
+            return [IsAuthenticated(), IsActiveUser(), IsAdmin()]
         return [IsAuthenticated(), IsActiveUser()]
 
     def create(self, request, *args, **kwargs):
@@ -106,6 +106,7 @@ class PersonPredictionView(ListCreateAPIView):
                 "age_group": self.get_age_group(age_res.get("age")),
 
                 "country_id": top_country.get("country_id"),
+                "country_name": top_country.get("country_id"),
                 "country_probability": top_country.get("probability"),
 
             }
@@ -228,8 +229,12 @@ class PersonPredictionDetailView(RetrieveDestroyAPIView):
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     lookup_field = "id"
-    permission_classes = [IsAuthenticated, IsActiveUser, IsAdmin]
     throttle_classes = [UserRateThrottle]
+
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [IsAuthenticated(), IsActiveUser(), IsAdmin()]
+        return [IsAuthenticated(), IsActiveUser()]
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()

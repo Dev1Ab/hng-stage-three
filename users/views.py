@@ -1,5 +1,5 @@
 from django.utils import timezone
-
+from django.contrib.auth import authenticate
 from config.utils import AuthRateThrottle
 
 from .models import User
@@ -446,3 +446,38 @@ class MeView(APIView):
             "role": request.user.role,
             "is_active": request.user.is_active,
         })
+
+class LoginView(APIView):
+    permission_classes = []
+    throttle_classes = [AuthRateThrottle]
+
+    def post(self, request):
+        username = request.data.get("username")
+        password = request.data.get("password")
+
+        if not username or not password:
+            return Response({
+                "status": "error",
+                "message": "Username and password required"
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        user = authenticate(username=username, password=password)
+
+        if not user:
+            return Response({
+                "status": "error",
+                "message": "Invalid credentials"
+            }, status=status.HTTP_401_UNAUTHORIZED)
+
+        refresh = RefreshToken.for_user(user)
+
+        return Response({
+            "status": "success",
+            "access_token": str(refresh.access_token),
+            "refresh_token": str(refresh),
+            "user": {
+                "username": user.username,
+                "email": user.email,
+                "role": user.role,
+            }
+        }, status=status.HTTP_200_OK)

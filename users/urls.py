@@ -1,7 +1,8 @@
 from django.urls import path
-from .views import GitHubLoginView, GitHubCallbackView, GitHubExchangeView, MeView, TokenRefreshView, LogoutView, CreateAdminView
+from .views import GitHubLoginView, GitHubCallbackView, GitHubExchangeView, MeView, TokenRefreshView, LogoutView, CreateAdminView, LoginView
 
 urlpatterns = [
+    path('login', LoginView.as_view(), name='github-login'),
     path('github', GitHubLoginView.as_view(), name='github-login'),
     path('github/callback', GitHubCallbackView.as_view(), name='github-callback'),
     path('exchange', GitHubExchangeView.as_view(), name='github-exchange'),
