@@ -29,22 +29,22 @@ class GitHubLoginView(APIView):
 
         code_verifier = request.GET.get("code_verifier")
 
-        if state.startswith("web:") and not code_verifier:
+        if not state:
             return Response({
-                "status": "error",
-                "message": "Missing code_verifier"
-            }, status=400)
+                "status":"error",
+                "message": "Missing state"}, status=400)
 
         if not code_challenge:
             return Response({
                 "status":"error",
                 "message": "Missing code_challenge"
                 }, status=400)
-
-        if not state:
+        
+        if state.startswith("web:") and not code_verifier:
             return Response({
-                "status":"error",
-                "message": "Missing state"}, status=400)
+                "status": "error",
+                "message": "Missing code_verifier"
+            }, status=400)
 
         github_url = (
             f"{config('GITHUB_OAUTH_URL')}/authorize"
@@ -214,17 +214,6 @@ class GitHubCallbackView(APIView):
 
         return response
     def handle_test_code(self, request, state):
-        if not getattr(settings, "ENABLE_TEST_AUTH", False):
-            return Response({
-                "status": "error",
-                "message": "Test auth disabled"
-            }, status=403)
-
-        if ":" not in state:
-            return Response({
-                "status": "error",
-                "message": "Invalid state"
-            }, status=400)
 
         user, _ = User.objects.update_or_create(
             username="seeded_admin",
