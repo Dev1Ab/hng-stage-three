@@ -12,6 +12,36 @@ A secure backend system for **Insighta Labs+**, supporting:
 
 ---
 
+## Query Normalization
+
+### Approach
+Plain English and query parameters are converted into a canonical filter object.
+
+Example:
+
+"Nigerian females between ages 20 and 45"
+
+becomes:
+
+{
+  "country_id": "NG",
+  "gender": "female",
+  "min_age": 20,
+  "max_age": 45
+}
+
+This object is sorted and hashed to produce a stable cache key.
+
+## CSV Ingestion
+
+### Approach
+- CSV is streamed
+- Rows are validated one by one
+- Valid rows are inserted using bulk_create
+- Bad rows are skipped
+- Processing continues after failures
+- No full rollback is used
+
 ## Tech Stack
 
 * Django + Django REST Framework
