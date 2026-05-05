@@ -27,5 +27,13 @@ class Person(models.Model):
         indexes = [
             models.Index(fields=["gender"]),
             models.Index(fields=["age"]),
+            models.Index(fields=["age_group"]),
             models.Index(fields=["country_id"]),
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["gender_probability"]),
+            models.Index(fields=["country_probability"]),
+
+            models.Index(fields=["country_id", "gender", "age"]),
+            models.Index(fields=["country_id", "age_group"]),
+            models.Index(fields=["gender", "age"]),
         ]
