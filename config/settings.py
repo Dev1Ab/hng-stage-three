@@ -77,6 +77,17 @@ MIDDLEWARE = [
     'config.middleware.RequestLoggingMiddleware',
 ]
 
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": config("REDIS_URL"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        }
+    }
+}
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
