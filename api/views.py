@@ -1,22 +1,26 @@
 import re
 import requests
 import csv
+from io import TextIOWrapper
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.generics import CreateAPIView, RetrieveDestroyAPIView, ListAPIView, ListCreateAPIView, ValidationError
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import filters, status
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import MultiPartParser
 from datetime import datetime, timezone
 from uuid6 import uuid7
 from decouple import config
 from django.http import HttpResponse
+from django.core.cache import cache
 
 from config.utils import UserRateThrottle
 
 from .serializers import PersonSerializer
 from .models import Person
 from .permissions import IsAdmin, IsActiveUser
+from .utils import make_cache_key, parse_query_to_filters
 
 
 GENDERIZE_API_URL = config("GENDERIZE_API_URL")
@@ -44,7 +48,11 @@ class Pagination(PageNumberPagination):
 
 class PersonPredictionView(ListCreateAPIView):
     serializer_class = PersonSerializer
-    queryset = Person.objects.all()
+    queryset = Person.objects.only(
+        "id", "name", "gender", "gender_probability",
+        "age", "age_group", "country_id", "country_name",
+        "country_probability", "created_at"
+    )
     pagination_class = Pagination
     throttle_classes = [UserRateThrottle]
 
@@ -138,7 +146,11 @@ class PersonPredictionView(ListCreateAPIView):
         return "senior"
 
     def get_queryset(self):
-        queryset = Person.objects.all()
+        queryset = Person.objects.only(
+            "id", "name", "gender", "gender_probability",
+            "age", "age_group", "country_id", "country_name",
+            "country_probability", "created_at"
+        )
 
         params = self.request.query_params
 
@@ -214,19 +226,39 @@ class PersonPredictionView(ListCreateAPIView):
                 "message": "Invalid query parameters"
             }, status=422)
 
+        cache_key = make_cache_key("profiles:list", params.dict())
+
+        cached_response = cache.get(cache_key)
+        if cached_response:
+            return Response(cached_response)
+
         queryset = self.filter_queryset(self.get_queryset())
 
         page = self.paginate_queryset(queryset)
 
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            response = self.get_paginated_response(serializer.data)
+            cache.set(cache_key, response.data, timeout=120)  # 2 min
+
+            return response
 
         serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+
+        response_data = {
+            "status": "success",
+            "data": serializer.data
+        }
+
+        cache.set(cache_key, response_data, timeout=120) # 2 min
+        return Response(response_data)
     
 class PersonPredictionDetailView(RetrieveDestroyAPIView):
-    queryset = Person.objects.all()
+    queryset = Person.objects.only(
+        "id", "name", "gender", "gender_probability",
+        "age", "age_group", "country_id", "country_name",
+        "country_probability", "created_at"
+    )
     serializer_class = PersonSerializer
     lookup_field = "id"
     throttle_classes = [UserRateThrottle]
@@ -301,28 +333,54 @@ class ProfileSearchView(ListAPIView):
         return qs
 
     def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-
-        if not getattr(self, "interpreted", False):
-            return Response({
-                "status": "error",
-                "message": "Unable to interpret query"
-            }, status=400)
+        q = request.query_params.get("q", "").strip()
         
         if getattr(self, "invalid_query", False):
             return Response({
                 "status": "error",
                 "message": "q parameter is required"
             }, status=400)
+        
+        if not getattr(self, "interpreted", False):
+            return Response({
+                "status": "error",
+                "message": "Unable to interpret query"
+            }, status=400)
+
+        filters = parse_query_to_filters(q)
+
+        if not filters:
+            return Response({
+                "status": "error",
+                "message": "Unable to interpret query"
+            }, status=400)
+
+        cache_key = make_cache_key("profiles:search", filters)  
+
+        cached_response = cache.get(cache_key)
+        if cached_response:
+            return Response(cached_response)
+        
+        queryset = self.get_queryset()
 
         page = self.paginate_queryset(queryset)
 
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            response = self.get_paginated_response(serializer.data)
+            cache.set(cache_key, response.data, timeout=120)  # 2 min
+
+            return response
 
         serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+
+        response_data = {
+            "status": "success",
+            "data": serializer.data
+        }
+
+        cache.set(cache_key, response_data, timeout=120) # 2 min
+        return Response(response_data)
     
 
 class ExportProfilesView(APIView):
@@ -378,3 +436,107 @@ class ExportProfilesView(APIView):
             ])
 
         return response
+
+
+class ProfileCSVUploadView(APIView):
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+        file = request.FILES.get("file")
+
+        if not file:
+            return Response({
+                "status": "error",
+                "message": "CSV file is required"
+            }, status=400)
+
+        decoded_file = TextIOWrapper(file.file, encoding="utf-8", errors="replace")
+        reader = csv.DictReader(decoded_file)
+
+        batch = []
+        batch_size = 5000
+
+        total_rows = 0
+        inserted = 0
+        skipped = 0
+
+        reasons = {
+            "duplicate_name": 0,
+            "invalid_age": 0,
+            "missing_fields": 0,
+            "invalid_gender": 0,
+            "malformed_row": 0,
+        }
+
+        required = [
+            "name", "gender", "gender_probability", "age",
+            "age_group", "country_id", "country_name",
+            "country_probability"
+        ]
+
+        existing_names = set(
+            Person.objects.values_list("name", flat=True)
+        )
+
+        for row in reader:
+            total_rows += 1
+
+            try:
+                if not all(row.get(field) for field in required):
+                    skipped += 1
+                    reasons["missing_fields"] += 1
+                    continue
+
+                name = row["name"].strip()
+
+                if name in existing_names:
+                    skipped += 1
+                    reasons["duplicate_name"] += 1
+                    continue
+
+                gender = row["gender"].strip().lower()
+                if gender not in ["male", "female"]:
+                    skipped += 1
+                    reasons["invalid_gender"] += 1
+                    continue
+
+                age = int(row["age"])
+                if age < 0:
+                    skipped += 1
+                    reasons["invalid_age"] += 1
+                    continue
+
+                person = Person(
+                    name=name,
+                    gender=gender,
+                    gender_probability=float(row["gender_probability"]),
+                    age=age,
+                    age_group=row["age_group"].strip().lower(),
+                    country_id=row["country_id"].strip().upper(),
+                    country_name=row["country_name"].strip(),
+                    country_probability=float(row["country_probability"]),
+                )
+
+                batch.append(person)
+                existing_names.add(name)
+
+                if len(batch) >= batch_size:
+                    Person.objects.bulk_create(batch, ignore_conflicts=True)
+                    inserted += len(batch)
+                    batch = []
+
+            except Exception:
+                skipped += 1
+                reasons["malformed_row"] += 1
+
+        if batch:
+            Person.objects.bulk_create(batch, ignore_conflicts=True)
+            inserted += len(batch)
+
+        return Response({
+            "status": "success",
+            "total_rows": total_rows,
+            "inserted": inserted,
+            "skipped": skipped,
+            "reasons": reasons
+        }, status=200)
