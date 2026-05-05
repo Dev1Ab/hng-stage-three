@@ -1,11 +1,13 @@
 from django.urls import path
-from .views import ExportProfilesView, PersonPredictionView, PersonPredictionDetailView, ProfileSearchView
+from .views import ExportProfilesView, PersonPredictionView, PersonPredictionDetailView, ProfileSearchView, ProfileCSVUploadView
 from users.views import MeView
 
 urlpatterns = [
     path('users/me', MeView.as_view(), name='me'),
     path("profiles/export", ExportProfilesView.as_view(), name="profiles-export"),
     path("profiles/export/", ExportProfilesView.as_view(), name="profiles-export-slash"),
+    path("profiles/upload", ProfileCSVUploadView.as_view(), name="profile-csv-upload"),
+    path("profiles/upload/", ProfileCSVUploadView.as_view(), name="profile-csv-upload-slash"),
 
     path("profiles/search", ProfileSearchView.as_view(), name="profile-search"),
     path("profiles/search/", ProfileSearchView.as_view(), name="profile-search-slash"),
